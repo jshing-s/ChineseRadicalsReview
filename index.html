@@ -17,13 +17,15 @@
       --bad: #ef4444;
     }
     *{box-sizing:border-box}
-    html,body{height:100%}
+    html,body{min-height:100%}
     body{
       margin:0; background: radial-gradient(1200px 800px at 10% -10%, #1f2937, var(--bg));
       color:var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
-      display:flex; align-items:center; justify-content:center; padding:24px;
+      /* allow page to scroll when content grows */
+      overflow-y:auto; min-height:100vh;
+      display:block; padding:24px;
     }
-    .app{ width: min(980px, 100%); }
+    .app{ width: min(980px, 100%); margin: 0 auto; }
     header{ display:flex; gap:16px; align-items:center; justify-content:space-between; margin-bottom:16px; }
     .title{ font-size: clamp(20px, 3vw, 28px); font-weight: 700; letter-spacing:.3px }
     .controls{ display:flex; gap:8px; flex-wrap:wrap; align-items:center }
