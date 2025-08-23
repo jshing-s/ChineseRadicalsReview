@@ -6,27 +6,25 @@
   <title>Mandarin Radicals Flashcards</title>
   <style>
     :root{
-      --bg: #0f172a;
-      --panel: #111827;
-      --card: #0b1221;
-      --muted: #94a3b8;
-      --text: #e5e7eb;
-      --accent: #38bdf8;
-      --accent-2: #22d3ee;
-      --good: #22c55e;
-      --bad: #ef4444;
+      --bg: #0f172a;         /* slate-900 */
+      --panel: #111827;      /* gray-900 */
+      --card: #0b1221;       /* deep slate */
+      --muted: #94a3b8;      /* slate-400 */
+      --text: #e5e7eb;       /* gray-200 */
+      --accent: #38bdf8;     /* sky-400 */
+      --accent-2: #22d3ee;   /* cyan-400 */
+      --good: #22c55e;       /* green-500 */
+      --bad: #ef4444;        /* red-500 */
     }
     *{box-sizing:border-box}
-    html,body{min-height:100%}
+    html, body{height:auto; min-height:100%; overflow-y:auto}
     body{
       margin:0; background: radial-gradient(1200px 800px at 10% -10%, #1f2937, var(--bg));
       color:var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
-      /* allow page to scroll when content grows */
-      overflow-y:auto; min-height:100vh;
-      display:block; padding:24px;
+      display:block; padding:24px; -webkit-overflow-scrolling:touch;
     }
     .app{ width: min(980px, 100%); margin: 0 auto; }
-    header{ display:flex; gap:16px; align-items:center; justify-content:space-between; margin-bottom:16px; }
+    header{ display:flex; gap:16px; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap }
     .title{ font-size: clamp(20px, 3vw, 28px); font-weight: 700; letter-spacing:.3px }
     .controls{ display:flex; gap:8px; flex-wrap:wrap; align-items:center }
     button, .chip, select{
@@ -75,9 +73,12 @@
     .kbd{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12px; border:1px solid #2a3552; padding:2px 6px; border-radius:6px; background:#0c1221 }
     .help{ max-width: 100%; border:1px dashed #1f2a44; padding:10px 12px; border-radius:12px; color:var(--muted); }
 
-    .missed-list{ margin-top:20px; padding:12px; border:1px solid #2a3552; border-radius:12px; background:#0b1221; }
-    .missed-list h3{ margin:0 0 10px; font-size:18px; color:var(--accent); }
-    .missed-item{ margin-bottom:6px; }
+    /* Collapsible Missed box */
+    details.missed-list{ margin-top:20px; padding:12px; border:1px solid #2a3552; border-radius:12px; background:#0b1221; }
+    details.missed-list > summary{ cursor:pointer; font-weight:700; color:var(--accent); outline:none }
+    #missedItems{ max-height:50vh; overflow:auto; -webkit-overflow-scrolling:touch }
+    .missed-item{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin:6px 0; padding:6px 8px; border:1px solid #1f2a44; border-radius:10px }
+    .missed-item button{ padding:6px 10px; border-radius:8px }
   </style>
 </head>
 <body>
@@ -88,7 +89,8 @@
         <button id="shuffleBtn" class="chip active" title="Shuffle order">Shuffle</button>
         <button id="reviewAll" class="chip active" title="Review: All">All</button>
         <button id="reviewMissed" class="chip" title="Review only missed">Missed</button>
-        <select id="fontSize">
+        <button id="retryMissed" title="Start a run with only missed">Retry Missed</button>
+        <select id="fontSize" aria-label="Font size">
           <option value="1">Font: Default</option>
           <option value="1.15">Font: +15%</option>
           <option value="1.3">Font: +30%</option>
@@ -132,18 +134,19 @@
       </div>
 
       <div class="help">
-        Shortcuts — <span class="kbd">space</span> flip, <span class="kbd">→</span> next, <span class="kbd">1</span> knew, <span class="kbd">2</span> forgot. Click the card to flip. Front shows <b>pinyin + characters together</b>; back shows the English meaning.
+        Shortcuts — <span class="kbd">space</span> flip, <span class="kbd">→</span> next, <span class="kbd">1</span> knew, <span class="kbd">2</span> forgot. Front shows <b>pinyin + characters</b> together; back shows the English meaning.
       </div>
 
-      <div class="missed-list" id="missedList" style="display:none">
-        <h3>Missed Radicals</h3>
+      <!-- Collapsible Missed list -->
+      <details class="missed-list" id="missedBox" style="display:none">
+        <summary>Missed Radicals (<span id="missedCount">0</span>)</summary>
         <div id="missedItems"></div>
-      </div>
+      </details>
     </section>
   </div>
 
   <script>
-    // --- Data ---
+    // --- Data: your requested radicals ---
     const RADICALS = [
       { key:'person',    chars:'人 亻', pinyin:'rén',  meaning:'person; man' },
       { key:'ice',       chars:'冫',   pinyin:'bīng', meaning:'ice; cold' },
@@ -171,7 +174,7 @@
       i: 0,
       flipped: false,
       stats: RADICALS.map(() => ({ seen:0, correct:0, wrong:0 })),
-      reviewMode: 'all',
+      reviewMode: 'all', // 'all' | 'missed'
       shuffle: true,
     };
 
@@ -187,8 +190,6 @@
     const correctTotalEl = document.getElementById('correctTotal');
     const missedTotalEl = document.getElementById('missedTotal');
     const seenTotalEl = document.getElementById('seenTotal');
-    const missedListEl = document.getElementById('missedList');
-    const missedItemsEl = document.getElementById('missedItems');
 
     const flipBtn = document.getElementById('flip');
     const nextBtn = document.getElementById('next');
@@ -198,8 +199,13 @@
     const shuffleBtn = document.getElementById('shuffleBtn');
     const reviewAllBtn = document.getElementById('reviewAll');
     const reviewMissedBtn = document.getElementById('reviewMissed');
+    const retryMissedBtn = document.getElementById('retryMissed');
     const resetBtn = document.getElementById('resetBtn');
     const fontSizeSel = document.getElementById('fontSize');
+
+    const missedBox = document.getElementById('missedBox');
+    const missedItemsEl = document.getElementById('missedItems');
+    const missedCountEl = document.getElementById('missedCount');
 
     // --- Utils ---
     function shuffleArray(arr){
@@ -233,14 +239,16 @@
     function updateMissedList(){
       const missedIndices = state.stats.map((s,i)=>s.wrong>0?i:null).filter(x=>x!==null);
       if (missedIndices.length){
-        missedListEl.style.display='block';
+        missedBox.style.display='block';
         missedItemsEl.innerHTML = missedIndices.map(i => {
           const r = RADICALS[i];
-          return `<div class="missed-item">${r.chars} (${r.pinyin}) — ${r.meaning}</div>`;
+          return `<div class=\"missed-item\"><span>${r.chars} (${r.pinyin}) — ${r.meaning}</span><button data-jump=\"${i}\">Jump</button></div>`;
         }).join('');
+        missedCountEl.textContent = missedIndices.length;
       } else {
-        missedListEl.style.display='none';
+        missedBox.style.display='none';
         missedItemsEl.innerHTML = '';
+        missedCountEl.textContent = '0';
       }
     }
 
@@ -253,7 +261,7 @@
       charsEl.textContent = item.chars;
       pinyinEl.textContent = item.pinyin;
       meaningEl.textContent = item.meaning;
-      subEl.textContent = `Radical ${idx+1} of ${RADICALS.length}`;
+      subEl && (subEl.textContent = `Radical ${idx+1} of ${RADICALS.length}`);
 
       const pos = state.i + 1;
       progressTextEl.textContent = `${pos} / ${ord.length}`;
@@ -288,7 +296,7 @@
       const s = state.stats[idx];
       s.seen += 1;
       if (known) s.correct += 1; else s.wrong += 1;
-      render(); // update missed list immediately
+      render();
       next();
     }
 
@@ -298,6 +306,23 @@
     nextBtn.addEventListener('click', next);
     knowBtn.addEventListener('click', () => record(true));
     dontBtn.addEventListener('click', () => record(false));
+
+    // delegate clicks in Missed list to support dynamic buttons
+    missedItemsEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-jump]');
+      if (!btn) return;
+      const idx = Number(btn.getAttribute('data-jump'));
+      // Jump to that card
+      const ord = activeOrder();
+      // Ensure we are in 'all' mode so index mapping is consistent
+      state.reviewMode = 'all';
+      reviewAllBtn.classList.add('active');
+      reviewMissedBtn.classList.remove('active');
+      state.i = state.order.indexOf(idx);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setFlipped(false);
+      render();
+    });
 
     shuffleBtn.addEventListener('click', () => {
       state.shuffle = !state.shuffle;
@@ -321,10 +346,31 @@
       state.i = 0; setFlipped(false); render();
     });
 
+    retryMissedBtn.addEventListener('click', () => {
+      // Build a new order consisting only of missed indices
+      const missedOnly = state.order.filter(idx => state.stats[idx].wrong > 0);
+      if (!missedOnly.length) { state.reviewMode = 'all'; render(); return; }
+      state.reviewMode = 'missed';
+      reviewMissedBtn.classList.add('active');
+      reviewAllBtn.classList.remove('active');
+      // Preserve shuffle setting
+      state.order = RADICALS.map((_, i) => i);
+      if (state.shuffle) shuffleArray(missedOnly);
+      // We'll use activeOrder() to respect missedOnly; set index to 0
+      state.i = 0;
+      setFlipped(false);
+      render();
+      // Rebuild order back to full after render; activeOrder uses stats to filter
+      // so we keep the master order intact.
+    });
+
     resetBtn.addEventListener('click', () => {
       state.stats = RADICALS.map(() => ({ seen:0, correct:0, wrong:0 }));
       state.order = RADICALS.map((_, i) => i);
       if (state.shuffle) shuffleArray(state.order);
+      state.reviewMode = 'all';
+      reviewAllBtn.classList.add('active');
+      reviewMissedBtn.classList.remove('active');
       state.i = 0; setFlipped(false); render();
     });
 
