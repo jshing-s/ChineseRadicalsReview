@@ -17,7 +17,7 @@
       --bad: #ef4444;        /* red-500 */
     }
     *{box-sizing:border-box}
-    html, body{height:auto; min-height:100%; overflow-y:auto}
+    html, body{height:auto; min-height:100%; overflow-y:auto; overscroll-behavior-y:auto}
     body{
       margin:0; background: radial-gradient(1200px 800px at 10% -10%, #1f2937, var(--bg));
       color:var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
@@ -121,6 +121,7 @@
         <button id="flip">Flip <span class="k">(space)</span></button>
         <button id="know" class="good">I knew this <span class="k">(1)</span></button>
         <button id="dont" class="bad">I forgot <span class="k">(2)</span></button>
+        <button id="prev">Back <span class="k">(←)</span></button>
         <button id="next">Next <span class="k">(→)</span></button>
       </div>
 
@@ -134,7 +135,7 @@
       </div>
 
       <div class="help">
-        Shortcuts — <span class="kbd">space</span> flip, <span class="kbd">→</span> next, <span class="kbd">1</span> knew, <span class="kbd">2</span> forgot. Front shows <b>pinyin + characters</b> together; back shows the English meaning.
+        Shortcuts — <span class="kbd">space</span> flip, <span class="kbd">Enter</span> flip, <span class="kbd">→</span> next, <span class="kbd">←</span> back, <span class="kbd">1</span> knew, <span class="kbd">2</span> forgot. Front shows <b>pinyin + characters</b> together; back shows the English meaning.
       </div>
 
       <!-- Collapsible Missed list -->
@@ -176,6 +177,7 @@
       stats: RADICALS.map(() => ({ seen:0, correct:0, wrong:0 })),
       reviewMode: 'all', // 'all' | 'missed'
       shuffle: true,
+      missedRun: null,   // holds a frozen order for Retry Missed runs
     };
 
     // --- Elements ---
@@ -193,6 +195,7 @@
 
     const flipBtn = document.getElementById('flip');
     const nextBtn = document.getElementById('next');
+    const prevBtn = document.getElementById('prev');
     const knowBtn = document.getElementById('know');
     const dontBtn = document.getElementById('dont');
 
@@ -218,8 +221,8 @@
 
     function activeOrder(){
       if (state.reviewMode === 'missed'){
-        const missed = state.order.filter(idx => state.stats[idx].wrong > 0);
-        if (missed.length) return missed;
+        if (state.missedRun && state.missedRun.length) return state.missedRun;
+        return state.order.filter(idx => state.stats[idx].wrong > 0);
       }
       return state.order;
     }
@@ -242,7 +245,7 @@
         missedBox.style.display='block';
         missedItemsEl.innerHTML = missedIndices.map(i => {
           const r = RADICALS[i];
-          return `<div class=\"missed-item\"><span>${r.chars} (${r.pinyin}) — ${r.meaning}</span><button data-jump=\"${i}\">Jump</button></div>`;
+          return `<div class="missed-item"><span>${r.chars} (${r.pinyin}) — ${r.meaning}</span><button data-jump="${i}">Jump</button></div>`;
         }).join('');
         missedCountEl.textContent = missedIndices.length;
       } else {
@@ -263,10 +266,10 @@
       meaningEl.textContent = item.meaning;
       subEl && (subEl.textContent = `Radical ${idx+1} of ${RADICALS.length}`);
 
-      const pos = state.i + 1;
+      const pos = ord.length ? (state.i + 1) : 0;
       progressTextEl.textContent = `${pos} / ${ord.length}`;
       modeLabelEl.textContent = state.reviewMode === 'missed' ? 'Missed' : 'All';
-      barEl.style.width = `${(pos/ord.length)*100}%`;
+      barEl.style.width = `${ord.length ? (pos/ord.length)*100 : 0}%`;
 
       const totals = state.stats.reduce((acc, s) => {
         acc.seen += s.seen; acc.correct += s.correct; acc.wrong += s.wrong; return acc;
@@ -289,6 +292,14 @@
       render();
     }
 
+    function prev(){
+      const ord = activeOrder();
+      if (!ord.length) return;
+      state.i = (state.i - 1 + ord.length) % ord.length;
+      setFlipped(false);
+      render();
+    }
+
     function record(known){
       const ord = activeOrder();
       if (!ord.length) return;
@@ -304,6 +315,7 @@
     cardEl.addEventListener('click', () => setFlipped(!state.flipped));
     flipBtn.addEventListener('click', () => setFlipped(!state.flipped));
     nextBtn.addEventListener('click', next);
+    prevBtn.addEventListener('click', prev);
     knowBtn.addEventListener('click', () => record(true));
     dontBtn.addEventListener('click', () => record(false));
 
@@ -313,9 +325,8 @@
       if (!btn) return;
       const idx = Number(btn.getAttribute('data-jump'));
       // Jump to that card
-      const ord = activeOrder();
-      // Ensure we are in 'all' mode so index mapping is consistent
       state.reviewMode = 'all';
+      state.missedRun = null; // exit missed run
       reviewAllBtn.classList.add('active');
       reviewMissedBtn.classList.remove('active');
       state.i = state.order.indexOf(idx);
@@ -327,13 +338,20 @@
     shuffleBtn.addEventListener('click', () => {
       state.shuffle = !state.shuffle;
       shuffleBtn.classList.toggle('active', state.shuffle);
-      state.order = RADICALS.map((_, i) => i);
-      if (state.shuffle) shuffleArray(state.order);
+
+      if (state.reviewMode === 'missed' && state.missedRun) {
+        state.missedRun = state.shuffle ? shuffleArray([...state.missedRun]) : [...state.missedRun].sort((a,b)=>a-b);
+      } else {
+        state.order = RADICALS.map((_, i) => i);
+        if (state.shuffle) shuffleArray(state.order);
+      }
+
       state.i = 0; setFlipped(false); render();
     });
 
     reviewAllBtn.addEventListener('click', () => {
       state.reviewMode = 'all';
+      state.missedRun = null;
       reviewAllBtn.classList.add('active');
       reviewMissedBtn.classList.remove('active');
       state.i = 0; setFlipped(false); render();
@@ -341,27 +359,27 @@
 
     reviewMissedBtn.addEventListener('click', () => {
       state.reviewMode = 'missed';
+      // If not in a frozen run, activeOrder() will compute from stats
       reviewMissedBtn.classList.add('active');
       reviewAllBtn.classList.remove('active');
       state.i = 0; setFlipped(false); render();
     });
 
     retryMissedBtn.addEventListener('click', () => {
-      // Build a new order consisting only of missed indices
       const missedOnly = state.order.filter(idx => state.stats[idx].wrong > 0);
-      if (!missedOnly.length) { state.reviewMode = 'all'; render(); return; }
+      if (!missedOnly.length) {
+        state.reviewMode = 'all';
+        state.missedRun = null;
+        render();
+        return;
+      }
       state.reviewMode = 'missed';
       reviewMissedBtn.classList.add('active');
       reviewAllBtn.classList.remove('active');
-      // Preserve shuffle setting
-      state.order = RADICALS.map((_, i) => i);
-      if (state.shuffle) shuffleArray(missedOnly);
-      // We'll use activeOrder() to respect missedOnly; set index to 0
+      state.missedRun = state.shuffle ? shuffleArray([...missedOnly]) : [...missedOnly];
       state.i = 0;
       setFlipped(false);
       render();
-      // Rebuild order back to full after render; activeOrder uses stats to filter
-      // so we keep the master order intact.
     });
 
     resetBtn.addEventListener('click', () => {
@@ -369,16 +387,30 @@
       state.order = RADICALS.map((_, i) => i);
       if (state.shuffle) shuffleArray(state.order);
       state.reviewMode = 'all';
+      state.missedRun = null;
       reviewAllBtn.classList.add('active');
       reviewMissedBtn.classList.remove('active');
       state.i = 0; setFlipped(false); render();
     });
 
     document.addEventListener('keydown', (e) => {
-      if (e.key === ' '){ e.preventDefault(); setFlipped(!state.flipped); }
-      else if (e.key === 'ArrowRight'){ next(); }
-      else if (e.key === '1'){ record(true); }
-      else if (e.key === '2'){ record(false); }
+      const tag = (document.activeElement?.tagName || '').toUpperCase();
+      const isTyping = ['INPUT','TEXTAREA','SELECT'].includes(tag) || document.activeElement?.isContentEditable;
+      const inMissed = e.target?.closest?.('#missedBox');
+      if (isTyping || inMissed) return; // let the browser handle keys while typing or inside missed list
+
+      if (e.key === ' ' || e.key === 'Enter') { // flip
+        e.preventDefault();
+        setFlipped(!state.flipped);
+      } else if (e.key === 'ArrowRight') { // next
+        next();
+      } else if (e.key === 'ArrowLeft') { // back
+        prev();
+      } else if (e.key === '1') { // knew
+        record(true);
+      } else if (e.key === '2') { // forgot
+        record(false);
+      }
     });
 
     fontSizeSel.addEventListener('change', render);
